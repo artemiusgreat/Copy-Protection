@@ -18,5 +18,5 @@ Whenever you want to check in yur code that your app is running on the same hard
 Done. 
 
 ```
-Protector.CheckDrive();
+Protector.CheckDrive()
 ```
