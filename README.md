@@ -1,4 +1,4 @@
-# Copy protection
+# Copy Protection
 
 Copy protection tool helps to protect your app from copying to another computer. 
 Useful, when you sell your app and don't want the customer to share it with anyone for free. 
