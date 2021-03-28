@@ -14,7 +14,7 @@ Useful, when you sell your app and don't want the customer to share it with anyo
 # Usage 
 
 Add this project to your solution and add reference to it. 
-Whenever you want to check in yur code that your app is running on the same hard drive, call this method. 
+Whenever you want to check in your code that your app is running on the same hard drive, call this method. 
 Done. 
 
 ```
