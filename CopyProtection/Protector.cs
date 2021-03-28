@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -8,68 +9,97 @@ using System.Text;
 
 namespace CopyProtection
 {
+  /// <summary>
+  /// Workflow
+  /// 1. User start the SomeApp.exe 
+  /// 2. SomeApp.exe adds MARK to the file name 
+  /// 3. SomeApp.exe adds MARK + HD serial to the file content
+  /// 4. SomeApp.exe kills itself and starts a copy named HDSN-PROTECTION-SomeApp.exe
+  /// 5. HDSN-PROTECTION-SomeApp.exe deletes original unprotected file and creates a new SomeApp.exe with HD serial inside 
+  /// 6. HDSN-PROTECTION-SomeApp.exe kills itself and starts protected SomeApp.exe 
+  /// 7. Now, SomeApp.exe can read its content and compare HD serial inside with serial number of HD where it's currently running
+  /// </summary>
   public class Protector
   {
-    const string PACKER_MARK = "HDSN";
-    const string PACKER_START = "START";
-    const string PACKER_MESSAGE_SETUP = "SETUP";
-    const string PACKER_MESSAGE_ERROR = "ERROR";
-    const string PACKER_MESSAGE_SUCCESS = "SUCCESS";
+    const string MARK = "HDSN-PROTECTION";
 
     /// <summary>
     /// Ensure that app is used for the first time or on the same hard drive
     /// </summary>
     /// <returns></returns>
-    public static string CheckDrive()
+    public static void CheckDrive()
     {
-      try
+      var serialNumber = GetDrive("Win32_DiskDrive", "SerialNumber");
+
+      if (string.IsNullOrEmpty(serialNumber))
       {
-        var location = Assembly.GetEntryAssembly().Location;
-        var locationRoot = Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
-        var locationName = Path.GetFileName(Assembly.GetEntryAssembly().Location).Replace(".exe", string.Empty);
-        var locationReplacement = string.Format("{0}\\{1}{2}.exe", locationRoot, PACKER_START, locationName);
-
-        // Check
-
-        var contentMark = Encoding.Default.GetBytes(PACKER_MARK);
-        var contentCurrent = File.ReadAllBytes(location).ToList();
-        var contentSerial = GetDrive("Win32_DiskDrive", "SerialNumber");
-        var exeMark = contentCurrent.Skip(contentCurrent.Count - contentMark.Length).Take(contentMark.Length).ToArray();
-        var exeSerial = contentCurrent.Skip(contentCurrent.Count - contentMark.Length - contentSerial.Length).Take(contentSerial.Length).ToArray();
-
-        if (Encoding.Default.GetString(exeMark).Equals(PACKER_MARK))
-        {
-          if (locationName.Substring(0, PACKER_START.Length).Equals(PACKER_START))
-          {
-            var locationSetup = string.Format("{0}\\{1}.exe", locationRoot, locationName.Substring(PACKER_START.Length));
-            var process = Process.GetCurrentProcess();
-
-            File.WriteAllBytes(locationSetup, contentCurrent.ToArray());
-            Process.Start(locationSetup);
-            process.Kill();
-          }
-          else
-          {
-            File.Delete(locationReplacement);
-          }
-
-          return Encoding.Default.GetString(exeSerial).Equals(contentSerial) ? PACKER_MESSAGE_SUCCESS : PACKER_MESSAGE_ERROR;
-        }
-        else
-        {
-          contentCurrent.AddRange(Encoding.Default.GetBytes(contentSerial));
-          contentCurrent.AddRange(contentMark);
-          File.WriteAllBytes(locationReplacement, contentCurrent.ToArray());
-          Process.Start(locationReplacement);
-          Process.GetCurrentProcess().Kill();
-        }
-      }
-      catch (Exception e)
-      {
-        return e.Message;
+        throw new Exception("No HD");
       }
 
-      return PACKER_MESSAGE_SETUP;
+      var doc = Process.GetCurrentProcess().MainModule.FileName;
+      var docLocation = Path.GetDirectoryName(doc);
+      var docName = Path.GetFileNameWithoutExtension(doc);
+      var docBytes = File.ReadAllBytes(doc);
+
+      // Step 2
+      // If EXE name contains MARK, close the app and run correct EXE
+
+      if (docName.Contains(MARK))
+      {
+        Run(doc, Path.ChangeExtension(doc.Replace(MARK, string.Empty), "exe"), docBytes);
+        return;
+      }
+
+      // Clean up temporary EXE files 
+      // User shouldn't guess which part of the app does the check
+
+      var docReplacement = Path.ChangeExtension(string.Format("{0}\\{1}{2}", docLocation, MARK, docName), "exe");
+
+      if (docName.Contains(MARK) == false && File.Exists(docReplacement))
+      {
+        File.Delete(docReplacement);
+      }
+
+      // Step 3
+      // Check presence of the MARK
+
+      var docContent = Encoding.Default.GetString(docBytes);
+
+      if (docContent.Contains(MARK))
+      {
+        // File contains MARK 
+        // Compare HD serial number after MARK with the current HD 
+
+        var docParts = docContent.Split(new string[] { MARK }, StringSplitOptions.None);
+
+        if (Equals(docParts.LastOrDefault(), serialNumber) == false)
+        {
+          throw new Exception("Illegal copy");
+        }
+
+        return;
+      }
+
+      // Step 1
+      // If EXE is running for the first time, create a temporary EXE with HD mark and rune it instead
+      // We can't modify content of the current EXE when it's running, so we create a temporary helper to restart the app after addition of HD mark
+
+      Run(doc, docReplacement, docBytes.Concat(Encoding.Default.GetBytes(MARK + serialNumber)));
+    }
+
+    /// <summary>
+    /// Copy content to a new EXE and start it
+    /// </summary>
+    /// <param name="source"></param>
+    /// <param name="destination"></param>
+    /// <param name="content"></param>
+    private static void Run(string source, string destination, IEnumerable<byte> content)
+    {
+      var process = Process.GetCurrentProcess();
+
+      File.WriteAllBytes(destination, content.ToArray());
+      Process.Start(destination);
+      process.Kill();
     }
 
     /// <summary>
@@ -80,24 +110,26 @@ namespace CopyProtection
     /// <returns></returns>
     private static string GetDrive(string wmiClass, string wmiProperty)
     {
-      var result = string.Empty;
-      var mc = new ManagementClass(wmiClass);
-      var moc = mc.GetInstances();
+      var response = string.Empty;
 
-      foreach (ManagementObject mo in moc)
+      using (var mc = new ManagementClass(wmiClass))
+      using (var moc = mc.GetInstances())
       {
-        if (result == string.Empty)
+        foreach (ManagementObject mo in moc)
         {
-          try
+          if (response == string.Empty)
           {
-            result = $"{ mo[wmiProperty] }";
-            break;
+            try
+            {
+              response = $"{ mo[wmiProperty] }";
+              break;
+            }
+            catch { }
           }
-          catch { }
         }
       }
 
-      return result;
+      return response;
     }
   }
 }
