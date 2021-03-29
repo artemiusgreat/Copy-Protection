@@ -11,9 +11,9 @@ namespace CopyProtection
 {
   /// <summary>
   /// Workflow
-  /// 1. User start the SomeApp.exe 
-  /// 2. SomeApp.exe adds MARK to the file name 
-  /// 3. SomeApp.exe adds MARK + HD serial to the file content
+  /// 1. User starts SomeApp.exe 
+  /// 2. SomeApp.exe adds MARK to the file name, HDSN-PROTECTION-SomeApp.exe 
+  /// 3. SomeApp.exe adds MARK + HD serial to the content of HDSN-PROTECTION-SomeApp.exe 
   /// 4. SomeApp.exe kills itself and starts a copy named HDSN-PROTECTION-SomeApp.exe
   /// 5. HDSN-PROTECTION-SomeApp.exe deletes original unprotected file and creates a new SomeApp.exe with HD serial inside 
   /// 6. HDSN-PROTECTION-SomeApp.exe kills itself and starts protected SomeApp.exe 
